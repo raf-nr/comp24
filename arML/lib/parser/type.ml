@@ -55,7 +55,7 @@ let parse_tuple_type pt =
       [ pt.parse_list_type pt
       ; pt.parse_ground_type
       ; pt.parse_polymorphic_type
-      ; parens @@ self
+      ; parens self
       ]
   in
 
