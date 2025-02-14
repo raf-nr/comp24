@@ -85,7 +85,6 @@ let parse_list_type pt =
       ; parens @@ pt.parse_tuple_type pt
       ]
   in
-  let parse_type = parens parse_type <|> parse_type in
   let* typ = parse_type in
   let rec parse_list typ =
     let* _ = skip_wspace1 *> string "list" in
