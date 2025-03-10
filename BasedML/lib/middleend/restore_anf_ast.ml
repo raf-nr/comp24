@@ -91,7 +91,50 @@ let rec frestore_pattern ppf pat =
     fprintf ")"
 ;;
 
-let rec restore_cexpr ppf = function
+let rec restore_cexpr ppf =
+  let rec type_name_to_string tp =
+    match tp with
+    | TUnit -> "unit"
+    | TInt -> "int"
+    | TBool -> "bool"
+    | TPoly name -> Printf.sprintf "'%s" name
+    | TTuple lst ->
+      let type_str =
+        lst
+        |> List.mapi (fun i tp ->
+          if i <> 0
+          then Printf.sprintf " * %s" (type_name_to_string tp)
+          else type_name_to_string tp)
+        |> String.concat ""
+      in
+      Printf.sprintf "(%s)" type_str
+    | TFunction (tp_arg, tp_ret) ->
+      Printf.sprintf
+        "(%s -> %s)"
+        (type_name_to_string tp_arg)
+        (type_name_to_string tp_ret)
+    | TList tp -> Printf.sprintf "(%s list)" (type_name_to_string tp)
+  in
+  let list_to_string pp sep lst =
+    let rec aux = function
+      | [] -> ""
+      | [ x ] -> pp x
+      | x :: xs -> Printf.sprintf "%s%s%s" (pp x) sep (aux xs)
+    in
+    aux lst
+  in
+  let rec imm_to_string = function
+    | ImmInt i -> string_of_int i
+    | ImmBool false -> "false"
+    | ImmBool true -> "true"
+    | ImmNil -> "[]"
+    | ImmIdentifier id -> id
+    | ImmUnit -> "()"
+    | ImmTuple tup -> Printf.sprintf "(%s)" (list_to_string imm_to_string ", " tup)
+    | ImmConstraint (imm, typ) ->
+      Printf.sprintf "(%s : %s)" (imm_to_string imm) (type_name_to_string typ)
+  in
+  function
   | CImmExpr imm -> fprintf ppf "%a" frestore_imm imm
   | CIfThenElse (cond, then_branch, else_branch) ->
     fprintf
@@ -103,33 +146,17 @@ let rec restore_cexpr ppf = function
       then_branch
       pp_aexpr
       else_branch
-  | CMatch (pat_head, pat_exp_lst) ->
-    fprintf
-      ppf
-      "match %a with\n%a"
-      frestore_imm
-      pat_head
-      (fun ppf ->
-        pp_list
-          ppf
-          (fun ppf (pat, ae) -> fprintf ppf "| %a -> %a" frestore_pattern pat pp_aexpr ae)
-          "\n")
-      pat_exp_lst
-  | CApplication (left, rigth) ->
-    fprintf ppf "%a %a" restore_cexpr left restore_cexpr rigth
+  | CApplication (left, right, args) ->
+    Printf.printf
+      " %s %s %s "
+      (imm_to_string left)
+      (imm_to_string right)
+      (args |> List.map imm_to_string |> String.concat " ")
 
 and pp_aexpr ppf = function
   | ACExpr cexp -> fprintf ppf "%a" restore_cexpr cexp
   | ALetIn (pat, outer, inner) ->
-    fprintf
-      ppf
-      "let %a = %a in\n %a"
-      frestore_pattern
-      pat
-      restore_cexpr
-      outer
-      pp_aexpr
-      inner
+    fprintf ppf "let %s = %a in\n %a" pat restore_cexpr outer pp_aexpr inner
 ;;
 
 let frestore_rec_flag ppf = function
@@ -141,30 +168,24 @@ let restore_anf_decl fmt = function
   | ADSingleLet (rec_flag, ALet (pat, patterns, body)) ->
     Format.fprintf
       fmt
-      "let %a %a %a = %a;;"
+      "let %a %s %a = %a;;"
       frestore_rec_flag
       rec_flag
-      frestore_pattern
       pat
-      (fun fmt -> List.iter (fun pat -> Format.fprintf fmt "%a " frestore_pattern pat))
+      (fun fmt -> List.iter (fun pat -> Format.fprintf fmt "%s " pat))
       patterns
       pp_aexpr
       body
-  | ADMutualRecDecl (rec_flag, bindings) ->
-    Format.fprintf fmt "let ";
-    frestore_rec_flag fmt rec_flag;
+  | ADMutualRecDecl bindings ->
+    Format.fprintf fmt "let %s" "rec";
     Format.fprintf fmt " ";
     List.iteri
       (fun i binding ->
         if i != 0 then Format.fprintf fmt " and ";
         match binding with
         | ALet (pat, patterns, exp) ->
-          Format.fprintf fmt " ";
-          frestore_pattern fmt pat;
-          (fun fmt ->
-            List.iter (fun pat -> Format.fprintf fmt " %a " frestore_pattern pat))
-            fmt
-            patterns;
+          Format.fprintf fmt " %s" pat;
+          (fun fmt -> List.iter (fun pat -> Format.fprintf fmt " %s " pat)) fmt patterns;
           Format.fprintf fmt " = %a " pp_aexpr exp)
       bindings
 ;;
